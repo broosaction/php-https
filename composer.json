@@ -1,0 +1,47 @@
+{
+  "name": "broosaction/php-https",
+  "homepage": "https://broosaction.com",
+  "description": "Broos Action Request Response Https Library",
+  "keywords": ["request","https","response"],
+  "type": "library",
+  "license": "Apache-2.0",
+  "authors": [
+    {
+      "name": "Broos Action",
+      "homepage": "Https://broosaction.com"
+    }
+  ],
+  "support": {
+    "forum": "https://broos.link",
+    "issues": "https://github.com/broosaction/php-https/issues"
+  },
+  "require": {
+    "php": ">=7.4",
+    "ext-pcre": "*",
+    "ext-json": "*",
+    "psr/http-message": "^1.0",
+    "nette/caching": "^3.0.2",
+    "phpseclib/phpseclib": "^2.0.23",
+    "ext-curl": "*",
+    "ext-openssl": "*"
+  },
+  "require-dev": {
+    "ext-openssl": "*",
+    "ext-dom": "*"
+  },
+  "suggest": {
+    "ext-openssl": "Allows working with Cloud's private distributions and verifying received messages",
+    "ext-curl": "To send requests using cURL",
+    "doctrine/cache": "To use the DoctrineCacheAdapter"
+  },
+  "autoload": {
+    "psr-4": {
+      "Https\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Https\\Test\\": "tests/"
+    }
+  }
+}
