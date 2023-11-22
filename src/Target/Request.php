@@ -18,7 +18,7 @@ class Request
     private static $verifyPeer = true;
     private static $verifyHost = true;
 
-    private static $auth = array (
+    private static $auth = array(
         'user' => '',
         'pass' => '',
         'method' => CURLAUTH_BASIC
@@ -29,7 +29,7 @@ class Request
         'tunnel' => false,
         'address' => false,
         'type' => CURLPROXY_HTTP,
-        'auth' => array (
+        'auth' => array(
             'user' => '',
             'pass' => '',
             'method' => CURLAUTH_BASIC
@@ -94,18 +94,6 @@ class Request
     }
 
     /**
-     * Set a new default header to send on every request
-     *
-     * @param string $name header name
-     * @param string $value header value
-     * @return string
-     */
-    public static function defaultHeader($name, $value)
-    {
-        return self::$defaultHeaders[$name] = $value;
-    }
-
-    /**
      * Clear all the default headers
      */
     public static function clearDefaultHeaders()
@@ -122,6 +110,17 @@ class Request
     public static function curlOpts($options)
     {
         return self::mergeCurlOptions(self::$curlOpts, $options);
+    }
+
+    /**
+     * @param array $existing_options
+     * @param array $new_options
+     * @return array
+     */
+    private static function mergeCurlOptions(&$existing_options, $new_options)
+    {
+        $existing_options = $new_options + $existing_options;
+        return $existing_options;
     }
 
     /**
@@ -157,6 +156,18 @@ class Request
     public static function setMashapeKey($key)
     {
         return self::defaultHeader('X-Mashape-Key', $key);
+    }
+
+    /**
+     * Set a new default header to send on every request
+     *
+     * @param string $name header name
+     * @param string $value header value
+     * @return string
+     */
+    public static function defaultHeader($name, $value)
+    {
+        return self::$defaultHeaders[$name] = $value;
     }
 
     /**
@@ -238,6 +249,199 @@ class Request
     public static function get($url, $headers = array(), $parameters = null, $username = null, $password = null)
     {
         return self::send(Method::GET, $url, $parameters, $headers, $username, $password);
+    }
+
+    /**
+     * Send a cURL request
+     * @param \Http\Method|string $method HTTP method to use
+     * @param string $url URL to send the request to
+     * @param mixed $body request body
+     * @param array $headers additional headers to send
+     * @param string $username Authentication username (deprecated)
+     * @param string $password Authentication password (deprecated)
+     * @return Response
+     * @throws \Http\Exception if a cURL error occurs
+     */
+    public static function send($method, $url, $body = null, $headers = [], $username = null, $password = null): Response
+    {
+        self::$handle = curl_init();
+
+        $curl_base_options = [
+            CURLOPT_URL => self::encodeUrl($url),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_HTTPHEADER => self::getFormattedHeaders($headers),
+            CURLOPT_HEADER => true,
+            CURLOPT_SSL_VERIFYPEER => self::$verifyPeer,
+            CURLOPT_SSL_VERIFYHOST => self::$verifyHost === false ? 0 : 2,
+            CURLOPT_ENCODING => '',
+            CURLOPT_CAINFO => __DIR__ . '/cacert.pem'
+        ];
+
+        if ($method === Method::POST) {
+            $curl_base_options[CURLOPT_POST] = true;
+            $curl_base_options[CURLOPT_POSTFIELDS] = $body;
+        } elseif ($method !== Method::GET) {
+            $curl_base_options[CURLOPT_CUSTOMREQUEST] = $method;
+            $curl_base_options[CURLOPT_POSTFIELDS] = $body;
+        } elseif (is_array($body)) {
+            $query = http_build_query(self::buildHTTPCurlQuery($body));
+            $url .= (strpos($url, '?') !== false ? '&' : '?') . urldecode($query);
+        }
+
+        curl_setopt_array(self::$handle, self::mergeCurlOptions($curl_base_options, self::$curlOpts));
+
+        if (self::$socketTimeout !== null) {
+            curl_setopt(self::$handle, CURLOPT_TIMEOUT, self::$socketTimeout);
+        }
+
+        if (self::$cookie) {
+            curl_setopt(self::$handle, CURLOPT_COOKIE, self::$cookie);
+        }
+
+        if (self::$cookieFile) {
+            curl_setopt(self::$handle, CURLOPT_COOKIEFILE, self::$cookieFile);
+            curl_setopt(self::$handle, CURLOPT_COOKIEJAR, self::$cookieFile);
+        }
+
+        if (!empty($username)) {
+            curl_setopt_array(self::$handle, [
+                CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+                CURLOPT_USERPWD => $username . ':' . $password
+            ]);
+        }
+
+        if (!empty(self::$auth['user'])) {
+            curl_setopt_array(self::$handle, [
+                CURLOPT_HTTPAUTH => self::$auth['method'],
+                CURLOPT_USERPWD => self::$auth['user'] . ':' . self::$auth['pass']
+            ]);
+        }
+
+        if (self::$proxy['address'] !== false) {
+            curl_setopt_array(self::$handle, [
+                CURLOPT_PROXYTYPE => self::$proxy['type'],
+                CURLOPT_PROXY => self::$proxy['address'],
+                CURLOPT_PROXYPORT => self::$proxy['port'],
+                CURLOPT_HTTPPROXYTUNNEL => self::$proxy['tunnel'],
+                CURLOPT_PROXYAUTH => self::$proxy['auth']['method'],
+                CURLOPT_PROXYUSERPWD => self::$proxy['auth']['user'] . ':' . self::$proxy['auth']['pass']
+            ]);
+        }
+
+        $response = curl_exec(self::$handle);
+        $error = curl_error(self::$handle);
+        $info = self::getInfo();
+
+        if ($error) {
+            throw new Exception($error);
+        }
+
+        $header_size = $info['header_size'];
+        $header = substr($response, 0, $header_size);
+        $body = substr($response, $header_size);
+        $httpCode = $info['http_code'];
+
+        return new Response($httpCode, $body, $header, self::$jsonOpts);
+    }
+
+    /**
+     * Ensure that a URL is encoded and safe to use with cURL
+     * @param string $url URL to encode
+     * @return string
+     */
+    private static function encodeUrl($url)
+    {
+        $url_parsed = parse_url($url);
+
+        $scheme = $url_parsed['scheme'] . '://';
+        $host = $url_parsed['host'];
+        $port = (isset($url_parsed['port']) ? $url_parsed['port'] : null);
+        $path = (isset($url_parsed['path']) ? $url_parsed['path'] : null);
+        $query = (isset($url_parsed['query']) ? $url_parsed['query'] : null);
+
+        if ($query !== null) {
+            $query = '?' . http_build_query(self::getArrayFromQuerystring($query));
+        }
+
+        if ($port) {
+            $port = ':' . $port;
+        }
+
+        $result = $scheme . $host . $port . $path . $query;
+        return $result;
+    }
+
+    private static function getArrayFromQuerystring($query)
+    {
+        $query = preg_replace_callback('/(?:^|(?<=&))[^=[]+/', function ($match) {
+            return bin2hex(urldecode($match[0]));
+        }, $query);
+
+        parse_str($query, $values);
+
+        return array_combine(array_map('hex2bin', array_keys($values)), $values);
+    }
+
+    public static function getFormattedHeaders($headers)
+    {
+        $formattedHeaders = [];
+        $combinedHeaders = self::$defaultHeaders + (array)$headers;
+        foreach ($combinedHeaders as $key => $val) {
+            $formattedHeaders[] = self::getHeaderString($key, $val);
+        }
+        if (!isset($combinedHeaders['user-agent'])) {
+            $formattedHeaders[] = 'user-agent: Litebase-httpsClient/2.0';
+        }
+        if (!isset($combinedHeaders['expect'])) {
+            $formattedHeaders[] = 'expect:';
+        }
+        return $formattedHeaders;
+    }
+
+    private static function getHeaderString($key, $val)
+    {
+        $key = strtolower(trim($key));
+        return $key . ': ' . $val;
+    }
+
+    /**
+     * This function is useful for serializing multidimensional arrays, and avoid getting
+     * the 'Array to string conversion' notice
+     * @param array|object $data array to flatten.
+     * @param bool|string $parent parent key or false if no parent
+     * @return array
+     */
+    public static function buildHTTPCurlQuery($data)
+    {
+        $result = [];
+        $stack = [[$data, false]];
+
+        while (!empty($stack)) {
+            [$currentData, $parent] = array_pop($stack);
+
+            if (is_object($currentData)) {
+                $currentData = (array)$currentData;
+            }
+
+            foreach ($currentData as $key => $value) {
+                $new_key = $parent ? sprintf('%s[%s]', $parent, $key) : $key;
+
+                if (is_array($value) || is_object($value)) {
+                    $stack[] = [$value, $new_key];
+                } else {
+                    $result[$new_key] = $value;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    public static function getInfo($opt = false)
+    {
+        return curl_getinfo(self::$handle, $opt);
     }
 
     /**
@@ -352,236 +556,8 @@ class Request
         return self::send(Method::TRACE, $url, $body, $headers, $username, $password);
     }
 
-    /**
-     * This function is useful for serializing multidimensional arrays, and avoid getting
-     * the 'Array to string conversion' notice
-     * @param array|object $data array to flatten.
-     * @param bool|string $parent parent key or false if no parent
-     * @return array
-     */
-    public static function buildHTTPCurlQuery($data, $parent = false)
-    {
-        $result = array();
-
-        if (is_object($data)) {
-            $data = get_object_vars($data);
-        }
-
-        foreach ($data as $key => $value) {
-            if ($parent) {
-                $new_key = sprintf('%s[%s]', $parent, $key);
-            } else {
-                $new_key = $key;
-            }
-
-            if (!$value instanceof \CURLFile and (is_array($value) or is_object($value))) {
-                $result = array_merge($result, self::buildHTTPCurlQuery($value, $new_key));
-            } else {
-                $result[$new_key] = $value;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Send a cURL request
-     * @param \Http\Method|string $method HTTP method to use
-     * @param string $url URL to send the request to
-     * @param mixed $body request body
-     * @param array $headers additional headers to send
-     * @param string $username Authentication username (deprecated)
-     * @param string $password Authentication password (deprecated)
-     * @throws \Http\Exception if a cURL error occurs
-     * @return Response
-     */
-    public static function send($method, $url, $body = null, $headers = array(), $username = null, $password = null): Response
-    {
-        self::$handle = curl_init();
-
-        if ($method !== Method::GET) {
-            if ($method === Method::POST) {
-                curl_setopt(self::$handle, CURLOPT_POST, true);
-            } else {
-                curl_setopt(self::$handle, CURLOPT_CUSTOMREQUEST, $method);
-            }
-
-            curl_setopt(self::$handle, CURLOPT_POSTFIELDS, $body);
-        } elseif (is_array($body)) {
-            if (strpos($url, '?') !== false) {
-                $url .= '&';
-            } else {
-                $url .= '?';
-            }
-
-            $url .= urldecode(http_build_query(self::buildHTTPCurlQuery($body)));
-        }
-
-        $curl_base_options = [
-            CURLOPT_URL => self::encodeUrl($url),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 10,
-            CURLOPT_HTTPHEADER => self::getFormattedHeaders($headers),
-            CURLOPT_HEADER => true,
-            CURLOPT_SSL_VERIFYPEER => self::$verifyPeer,
-            //CURLOPT_SSL_VERIFYHOST accepts only 0 (false) or 2 (true). Future versions of libcurl will treat values 1 and 2 as equals
-            CURLOPT_SSL_VERIFYHOST => self::$verifyHost === false ? 0 : 2,
-            // If an empty string, '', is set, a header containing all supported encoding types is sent
-            CURLOPT_ENCODING => '',
-            CURLOPT_CAINFO => __DIR__ . '/cacert.pem'
-        ];
-        if ($method === Method::POST) {
-            $curl_base_options[CURLOPT_POST]=true;
-            $curl_base_options[CURLOPT_POSTFIELDS] = $body;
-            }
-        curl_setopt_array(self::$handle, self::mergeCurlOptions($curl_base_options, self::$curlOpts));
-
-        if (self::$socketTimeout !== null) {
-            curl_setopt(self::$handle, CURLOPT_TIMEOUT, self::$socketTimeout);
-        }
-
-        if (self::$cookie) {
-            curl_setopt(self::$handle, CURLOPT_COOKIE, self::$cookie);
-        }
-
-        if (self::$cookieFile) {
-            curl_setopt(self::$handle, CURLOPT_COOKIEFILE, self::$cookieFile);
-            curl_setopt(self::$handle, CURLOPT_COOKIEJAR, self::$cookieFile);
-        }
-
-        // supporting deprecated http auth method
-        if (!empty($username)) {
-            curl_setopt_array(self::$handle, array(
-                CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-                CURLOPT_USERPWD => $username . ':' . $password
-            ));
-        }
-
-        if (!empty(self::$auth['user'])) {
-            curl_setopt_array(self::$handle, array(
-                CURLOPT_HTTPAUTH    => self::$auth['method'],
-                CURLOPT_USERPWD     => self::$auth['user'] . ':' . self::$auth['pass']
-            ));
-        }
-
-        if (self::$proxy['address'] !== false) {
-            curl_setopt_array(self::$handle, array(
-                CURLOPT_PROXYTYPE       => self::$proxy['type'],
-                CURLOPT_PROXY           => self::$proxy['address'],
-                CURLOPT_PROXYPORT       => self::$proxy['port'],
-                CURLOPT_HTTPPROXYTUNNEL => self::$proxy['tunnel'],
-                CURLOPT_PROXYAUTH       => self::$proxy['auth']['method'],
-                CURLOPT_PROXYUSERPWD    => self::$proxy['auth']['user'] . ':' . self::$proxy['auth']['pass']
-            ));
-        }
-
-        $response   = curl_exec(self::$handle);
-        $error      = curl_error(self::$handle);
-        $info       = self::getInfo();
-
-        if ($error) {
-            throw new Exception($error);
-        }
-
-        // Split the full response in its headers and body
-        $header_size = $info['header_size'];
-        $header      = substr($response, 0, $header_size);
-        $body        = substr($response, $header_size);
-        $httpCode    = $info['http_code'];
-
-        return new Response($httpCode, $body, $header, self::$jsonOpts);
-    }
-
-    public static function getInfo($opt = false)
-    {
-        if ($opt) {
-            $info = curl_getinfo(self::$handle, $opt);
-        } else {
-            $info = curl_getinfo(self::$handle);
-        }
-
-        return $info;
-    }
-
     public static function getCurlHandle()
     {
         return self::$handle;
-    }
-
-    public static function getFormattedHeaders($headers)
-    {
-        $formattedHeaders = array();
-
-        $combinedHeaders = array_change_key_case(array_merge(self::$defaultHeaders, (array) $headers));
-
-        foreach ($combinedHeaders as $key => $val) {
-            $formattedHeaders[] = self::getHeaderString($key, $val);
-        }
-
-        if (!array_key_exists('user-agent', $combinedHeaders)) {
-            $formattedHeaders[] = 'user-agent: Litebase-httpsClient/2.0';
-        }
-
-        if (!array_key_exists('expect', $combinedHeaders)) {
-            $formattedHeaders[] = 'expect:';
-        }
-
-        return $formattedHeaders;
-    }
-
-    private static function getArrayFromQuerystring($query)
-    {
-        $query = preg_replace_callback('/(?:^|(?<=&))[^=[]+/', function ($match) {
-            return bin2hex(urldecode($match[0]));
-        }, $query);
-
-        parse_str($query, $values);
-
-        return array_combine(array_map('hex2bin', array_keys($values)), $values);
-    }
-
-    /**
-     * Ensure that a URL is encoded and safe to use with cURL
-     * @param  string $url URL to encode
-     * @return string
-     */
-    private static function encodeUrl($url)
-    {
-        $url_parsed = parse_url($url);
-
-        $scheme = $url_parsed['scheme'] . '://';
-        $host   = $url_parsed['host'];
-        $port   = (isset($url_parsed['port']) ? $url_parsed['port'] : null);
-        $path   = (isset($url_parsed['path']) ? $url_parsed['path'] : null);
-        $query  = (isset($url_parsed['query']) ? $url_parsed['query'] : null);
-
-        if ($query !== null) {
-            $query = '?' . http_build_query(self::getArrayFromQuerystring($query));
-        }
-
-        if ( $port) {
-            $port = ':' . $port;
-        }
-
-        $result = $scheme . $host . $port . $path . $query;
-        return $result;
-    }
-
-    private static function getHeaderString($key, $val)
-    {
-        $key = trim(strtolower($key));
-        return $key . ': ' . $val;
-    }
-
-    /**
-     * @param array $existing_options
-     * @param array $new_options
-     * @return array
-     */
-    private static function mergeCurlOptions(&$existing_options, $new_options)
-    {
-        $existing_options = $new_options + $existing_options;
-        return $existing_options;
     }
 }
