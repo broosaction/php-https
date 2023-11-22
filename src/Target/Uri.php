@@ -816,7 +816,7 @@ class Uri implements UriInterface
         }
 
         if (is_string($uri)) {
-            return new Uri($uri);
+            return new self($uri);
         }
 
         throw new \InvalidArgumentException('URI must be a string or UriInterface');

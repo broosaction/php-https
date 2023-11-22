@@ -69,11 +69,11 @@ final class UriResolver
             return $base;
         }
 
-        if ($rel->getScheme() != '') {
+        if ($rel->getScheme() !== '') {
             return $rel->withPath(self::removeDotSegments($rel->getPath()));
         }
 
-        if ($rel->getAuthority() != '') {
+        if ($rel->getAuthority() !== '') {
             $targetAuthority = $rel->getAuthority();
             $targetPath = self::removeDotSegments($rel->getPath());
             $targetQuery = $rel->getQuery();
@@ -81,12 +81,12 @@ final class UriResolver
             $targetAuthority = $base->getAuthority();
             if ($rel->getPath() === '') {
                 $targetPath = $base->getPath();
-                $targetQuery = $rel->getQuery() != '' ? $rel->getQuery() : $base->getQuery();
+                $targetQuery = $rel->getQuery() !== '' ? $rel->getQuery() : $base->getQuery();
             } else {
                 if ($rel->getPath()[0] === '/') {
                     $targetPath = $rel->getPath();
                 } else {
-                    if ($targetAuthority != '' && $base->getPath() === '') {
+                    if ($targetAuthority !== '' && $base->getPath() === '') {
                         $targetPath = '/' . $rel->getPath();
                     } else {
                         $lastSlashPos = strrpos($base->getPath(), '/');
@@ -140,7 +140,7 @@ final class UriResolver
     public static function relativize(UriInterface $base, UriInterface $target)
     {
         if ($target->getScheme() !== '' &&
-            ($base->getScheme() !== $target->getScheme() || $target->getAuthority() === '' && $base->getAuthority() !== '')
+            (($base->getScheme() !== $target->getScheme()) || ($target->getAuthority() === '' && $base->getAuthority() !== ''))
         ) {
             return $target;
         }
@@ -201,14 +201,14 @@ final class UriResolver
         // A reference to am empty last segment or an empty first sub-segment must be prefixed with "./".
         // This also applies to a segment with a colon character (e.g., "file:colon") that cannot be used
         // as the first segment of a relative-path reference, as it would be mistaken for a scheme name.
-        if ('' === $relativePath || false !== strpos(explode('/', $relativePath, 2)[0], ':')) {
-            $relativePath = "./$relativePath";
-        } elseif ('/' === $relativePath[0]) {
-            if ($base->getAuthority() != '' && $base->getPath() === '') {
+        if ($relativePath === '' || strpos(explode('/', $relativePath, 2)[0], ':') !== false) {
+            $relativePath = "./{$relativePath}";
+        } elseif ($relativePath[0] === '/') {
+            if ($base->getAuthority() !== '' && $base->getPath() === '') {
                 // In this case an extra slash is added by resolve() automatically. So we must not add one here.
-                $relativePath = ".$relativePath";
+                $relativePath = ".{$relativePath}";
             } else {
-                $relativePath = "./$relativePath";
+                $relativePath = "./{$relativePath}";
             }
         }
 
