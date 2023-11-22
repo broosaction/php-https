@@ -6,6 +6,8 @@
  */
 
 namespace Https\Target\Request;
+use Https\Target\Request;
+
 class Body
 {
     /**
@@ -31,7 +33,7 @@ class Body
     public static function Json($data)
     {
         if (!function_exists('json_encode')) {
-            throw new Exception('JSON Extension not available');
+            throw new \Exception('JSON Extension not available');
         }
 
         return json_encode($data);
