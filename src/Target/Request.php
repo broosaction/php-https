@@ -441,7 +441,12 @@ class Request
 
     public static function getInfo($opt = false)
     {
-        return curl_getinfo(self::$handle, $opt);
+        if($opt){
+            return curl_getinfo(self::$handle, $opt);
+        }else{
+            return curl_getinfo(self::$handle);
+        }
+
     }
 
     /**
