@@ -23,17 +23,25 @@ class Uri implements UriInterface
     const HTTP_DEFAULT_HOST = 'localhost';
 
     private static $defaultPorts = [
-        'http'  => 80,
-        'https' => 443,
-        'ftp' => 21,
-        'gopher' => 70,
-        'nntp' => 119,
-        'news' => 119,
-        'telnet' => 23,
-        'tn3270' => 23,
-        'imap' => 143,
-        'pop' => 110,
-        'ldap' => 389,
+        'http'    => 80,
+        'https'   => 443,
+        'ftp'     => 21,
+        'gopher'  => 70,
+        'nntp'    => 119,
+        'news'    => 119,
+        'telnet'  => 23,
+        'tn3270'  => 23,
+        'imap'    => 143,
+        'pop'     => 110,
+        'ldap'    => 389,
+        'smtp'    => 25,    // SMTP default port
+        'ssh'     => 22,    // SSH default port
+        'mysql'   => 3306,  // MySQL default port
+        'sftp'    => 22,    // SFTP default port
+        'smtps'   => 465,   // SMTPS default port
+        'postgresql' => 5432, // PostgreSQL default port
+        'redis'   => 6379,  // Redis default port
+        // Add more protocols and their default ports here if needed
     ];
 
     private static $charUnreserved = 'a-zA-Z0-9_\-\.~';
